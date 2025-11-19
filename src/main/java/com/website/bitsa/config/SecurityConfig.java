@@ -4,11 +4,11 @@ import com.website.bitsa.service.JwtService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
-import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -34,10 +34,15 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
+                // 1. Enable CORS immediately
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-                .csrf(csrf -> csrf.disable()) // Disable CSRF to fix 403 on POST
+                .csrf(AbstractHttpConfigurer::disable)
 
                 .authorizeHttpRequests(auth -> auth
+                        // 2. Explicitly allow OPTIONS requests (Preflight checks)
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+
+                        // Public Endpoints
                         .requestMatchers(
                                 "/api/auth/**",
                                 "/api/blog/**",
@@ -47,13 +52,14 @@ public class SecurityConfig {
                                 "/api/categories/**"
                         ).permitAll()
 
-                        // Restore the security check
+                        // Admin only
                         .requestMatchers("/api/admin/**").hasAuthority("ROLE_ADMIN")
 
+                        // All other requests need authentication
                         .anyRequest().authenticated()
                 )
                 .sessionManagement(session -> session
-                        .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
+                        .sessionCreationPolicy(SessionCreationPolicy.STATELESS) // Changed to STATELESS for JWT best practice
                 )
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
@@ -73,16 +79,25 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
+
+        // 3. Define Allowed Origins
         configuration.setAllowedOrigins(List.of(
                 "http://localhost:5173",
                 "https://bitsa-frontend-kappa.vercel.app"
         ));
+
+        // 4. Define Allowed Methods
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("*"));
+
+        // 5. Define Explicit Headers (Wildcard * often fails with Credentials)
+        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Requested-With", "Accept", "Origin", "Access-Control-Request-Method", "Access-Control-Request-Headers"));
+
+        // 6. Allow Credentials (cookies/tokens)
         configuration.setAllowCredentials(true);
 
+        // 7. Apply to ALL paths, not just /api/**
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/api/**", configuration);
+        source.registerCorsConfiguration("/**", configuration);
         return source;
     }
 
